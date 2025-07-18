@@ -66,13 +66,10 @@ while True:
     for c1 in circles:
         c1.draw(screen)
 
-        # first add a little jiggle
-        # c1.x += (random.random() * 2) - 1
-        # c1.y += (random.random() * 2) - 1
-
         c1.x += c1.vx
         c1.y += c1.vy
 
+        # bounce back into screen
         if c1.x + c1.radius >= screen.get_width() or c1.x - c1.radius <= 0:
             c1.set_velocity(c1.vx * -1, c1.vy)
 
