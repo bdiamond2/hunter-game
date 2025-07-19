@@ -1,1 +1,5 @@
-print([1,1] * -2)
+import numpy as np
+
+arr = np.array([1, 2])
+
+print(type(arr))

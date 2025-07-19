@@ -1,14 +1,20 @@
 import numpy as np
 import pygame
 import sys
+from typing import TypedDict, List, Tuple
+
+class CreatureData(TypedDict):
+    pos_x: float
+    pos_y: float
+    speed: float
+    detect_range: float
 
 class Creature:
-    # pos: np.array
-
-    def __init__(self, x=0.0, y=0.0, speed=1, detect_range=100):
-        self.pos = np.array([x, y])
-        self.speed = speed
-        self.detect_range = detect_range
+    def __init__(self, creature_data: CreatureData):
+        cd = creature_data
+        self.pos = np.array([cd.get("pos_x", 0.0), cd.get("pos_y", 0.0)])
+        self.speed = cd.get("speed", 1.0)
+        self.detect_range = cd.get("detect_range", 10.0)
 
     def can_detect(self, other):
         # magnitude of the difference vector = distance
@@ -33,9 +39,9 @@ class Hunter(Creature):
 
 
 class Prey(Creature):
-    def __init__(self, x=0.0, y=0.0, speed=1, detect_range=100):
+    def __init__(self, prey_data: CreatureData):
         self.is_alert = False
-        super().__init__(x=x, y=y, speed=speed, detect_range=detect_range)
+        super().__init__(prey_data)
 
     def step(self, creatures):
         for c in creatures:
@@ -60,6 +66,19 @@ class Prey(Creature):
             self.is_alert = False
             self.detect_range *= 0.5
 
+class GameData(TypedDict):
+    creatures: List[Creature]
+    map_dim: Tuple[float, float]
+
+class HuntersGame:
+    # game_data keys
+    CREATURES = 0
+    MAP_DIM = 1
+
+    def __ini__(self, game_data):
+        self.creatures = game_data["creatures"]
+        self.map_dim = game_data["map_dim"]
+
 def draw_creature(c, screen):
     color = [0, 0, 0]
     if isinstance(c, Prey):
@@ -76,8 +95,22 @@ def main():
     screen = pygame.display.set_mode((screen_width, screen_height))
     clock = pygame.time.Clock()
 
-    h = Hunter(x=10.0, y=10.0, speed=1, detect_range=500)
-    p = Prey(x=100.0, y=100.0, speed=3, detect_range=100)
+    hunter_data: CreatureData = {
+        "pos_x": 10.0,
+        "pos_y": 10.0,
+        "speed": 1.0,
+        "detect_range": 500
+    }
+
+    prey_data: CreatureData = {
+        "pos_x": 100.0,
+        "pos_y": 150.0,
+        "speed": 3.0,
+        "detect_range": 100.0
+    }
+
+    h = Hunter(hunter_data)
+    p = Prey(prey_data)
     creatures = [h, p]
 
     while True:
@@ -93,11 +126,6 @@ def main():
 
         for c in creatures:
             draw_creature(c, screen)
-
-        # draw_creature(p, screen)
-        # draw_creature(h, screen)
-
-        # pygame.draw.circle(screen, (255, 0, 0), (30, 30), 10)
 
         pygame.display.flip()
         clock.tick(60)
