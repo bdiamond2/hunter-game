@@ -45,6 +45,13 @@ class Creature:
     def step(self):
         pass  # default behavior do nothing
 
+    def wander(self):
+        if rdm.random() < 0.1: # 10% random chance of moving
+            pass
+        else:
+            pass
+
+
     def can_detect(self, other):
         # magnitude of the difference vector = distance
         return np.linalg.norm(other.pos - self.pos) <= self.detect_range
@@ -122,6 +129,7 @@ class Hunter(Creature):
             self.decrease_stamina()
         else:
             self.increase_stamina(self.stamina_recharge)
+            self.wander()
         
 
     def can_chase(self, c: Creature):
@@ -172,6 +180,7 @@ class Prey(Creature):
             self.decrease_stamina()
         else:    
             self.increase_stamina(self.stamina_recharge)
+            self.wander()
 
     def try_flee(self, hunter):
         vt = self.vector_to(hunter)
@@ -235,7 +244,10 @@ def draw_creature(c: Creature, screen):
         return
 
     if isinstance(c, Prey):
-        color = [50, 50, 255]
+        if c.is_alert:
+            color = [50, 50, 255]
+        else:
+            color = [50, 255, 50]
     elif isinstance(c, Hunter):
         if c.lock_onto != None:
             color = [255, 0, 0]
