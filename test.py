@@ -1,5 +1,5 @@
 import numpy as np
 
-arr = np.array([1, 2])
-
-print(type(arr))
+a = np.array([1, 2])
+b = np.array([0, 4])
+print(a > b)

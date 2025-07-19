@@ -2,10 +2,10 @@ from __future__ import annotations
 import numpy as np
 import pygame
 import sys
-from typing import TypedDict, List, Tuple
+from typing import TypedDict, Tuple
 
 
-class CreatureData(TypedDict, total=False):
+class CreatureInit(TypedDict, total=False):
     pos_x: float
     pos_y: float
     speed: float
@@ -13,11 +13,14 @@ class CreatureData(TypedDict, total=False):
 
 
 class Creature:
-    def __init__(self, creature_data: CreatureData):
-        cd = creature_data
-        self.pos = np.array([cd.get("pos_x", 0), cd.get("pos_y", 0)], dtype=float)
-        self.speed = cd.get("speed", 1)
-        self.detect_range = cd.get("detect_range", 10)
+    def __init__(self, creature_init: CreatureInit, game_data: HuntersGame):
+        ci = creature_init
+        self.game_data = game_data
+        self.game_data.add_creature(self)  # add the creature to game_data's list
+
+        self.pos = np.array([ci.get("pos_x", 0), ci.get("pos_y", 0)], dtype=float)
+        self.speed = ci.get("speed", 1)
+        self.detect_range = ci.get("detect_range", 10)
 
     def can_detect(self, other):
         # magnitude of the difference vector = distance
@@ -28,32 +31,43 @@ class Creature:
         uv = (other.pos - self.pos) / np.linalg.norm(other.pos - self.pos)
         # make magnitude of speed
         return uv * self.speed
+    
+    def move_to(self, new_pos: np.ndarray):
+        if (new_pos > self.game_data.map_dim).any():  # either dimension beyond map_dim
+            raise ValueError("Invalid coordinates")
+        else:
+            self.pos = new_pos
 
 
 class Hunter(Creature):
-    def __init__(self, hunter_data: CreatureData):
+    def __init__(self, hunter_data: CreatureInit, game_data: HuntersGame):
         self.is_stealth = False
-        super().__init__(hunter_data)
+        super().__init__(hunter_data, game_data)
 
-    def step(self, game_data: HuntersGame):
-        for c in game_data.creatures:
+    def step(self):
+        for c in self.game_data.creatures:
+            if c == self:
+                continue
+                
             if isinstance(c, Prey) and self.can_detect(c):
                 self.chase(c)
-                pass
 
     def chase(self, prey):
         vt = self.vector_to(prey)
-        self.pos += vt
-        pass
+        # self.pos += vt
+        self.move_to(self.pos + vt)
 
 
 class Prey(Creature):
-    def __init__(self, prey_data: CreatureData):
+    def __init__(self, prey_init: CreatureInit, game_data: HuntersGame):
         self.is_alert = False
-        super().__init__(prey_data)
+        super().__init__(prey_init, game_data)
 
-    def step(self, game_data: HuntersGame):
-        for c in game_data.creatures:
+    def step(self):
+        for c in self.game_data.creatures:
+            if c == self:
+                continue
+
             if isinstance(c, Hunter) and self.can_detect(c):
                 self.make_alert()
                 self.flee(c)
@@ -76,19 +90,23 @@ class Prey(Creature):
             self.detect_range *= 0.5
 
 
-class GameData(TypedDict):
-    creatures: List[Creature]
+class GameInit(TypedDict):
+    # creatures: List[Creature]
     map_dim: Tuple[float, float]
 
 
 class HuntersGame:
-    def __init__(self, game_data):
-        self.creatures = game_data["creatures"]
-        self.map_dim = game_data["map_dim"]
+    def __init__(self, game_init):
+        self.creatures = []
+        self.map_dim = np.array([game_init["map_dim"][0], game_init["map_dim"][1]])
 
     def step(self):
         for c in self.creatures:
-            c.step(self)  # pass game data
+            c.step()  # pass game data
+
+    def add_creature(self, c: Creature):
+        if c not in self.creatures:
+            self.creatures.append(c)
 
 
 def draw_creature(c, screen):
@@ -102,26 +120,30 @@ def draw_creature(c, screen):
 
 
 def init_game_data():
-    hunter_data: CreatureData = {
+    hunter_init: CreatureInit = {
         "pos_x": 10,
         "pos_y": 10,
         # "speed": 1,
         "detect_range": 500,
     }
 
-    prey_data: CreatureData = {
+    prey_init: CreatureInit = {
         "pos_x": 100,
         "pos_y": 150,
         "speed": 3,
         "detect_range": 100,
     }
 
-    game_data: GameData = {
-        "creatures": [Hunter(hunter_data), Prey(prey_data)],
+    game_init: GameInit = {
+        # "creatures": [Hunter(hunter_data), Prey(prey_data)],
         "map_dim": (500, 500),
     }
 
-    return HuntersGame(game_data)
+    game_data = HuntersGame(game_init)
+    Hunter(hunter_init, game_data)
+    Prey(prey_init, game_data)
+
+    return game_data
 
 
 def main():
