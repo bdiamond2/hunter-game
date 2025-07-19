@@ -2,7 +2,8 @@ from __future__ import annotations
 import numpy as np
 import pygame
 import sys
-from typing import TypedDict, Tuple
+from typing import TypedDict, Tuple, List, cast
+import random as rdm
 
 
 def rotate_vector(v: np.ndarray, theta: float) -> np.ndarray:
@@ -41,6 +42,9 @@ class Creature:
 
         self.is_alive = True
 
+    def step(self):
+        pass  # default behavior do nothing
+
     def can_detect(self, other):
         # magnitude of the difference vector = distance
         return np.linalg.norm(other.pos - self.pos) <= self.detect_range
@@ -51,7 +55,7 @@ class Creature:
         # make magnitude of speed
         return uv * self.speed
 
-    def increase_stamina(self, amount: float=1):
+    def increase_stamina(self, amount: float = 1):
         self.stamina += amount
 
         if self.stamina > self.max_stamina:
@@ -73,42 +77,68 @@ class Creature:
             pass
 
         if self.on_stamina_recharge:
-            self.increase_stamina(self.stamina_recharge)
             return False
         else:
             self.pos = new_pos
-            self.decrease_stamina()
             return True
 
 
 class Hunter(Creature):
     def __init__(self, hunter_data: CreatureInit, game_data: HuntersGame):
         self.is_stealth = False
+        self.lock_onto = None
         super().__init__(hunter_data, game_data)
 
     def step(self):
         if not self.is_alive:
             return
 
-        for c in self.game_data.creatures:
-            if c == self:
-                continue
+        # flip to True if chasing happens
+        did_chase = False
 
-            if isinstance(c, Prey) and self.can_detect(c) and c.is_alive:
-                self.try_chase(c)
+        for c in self.game_data.creatures:
+            if self.can_chase(c):
+                c = cast(Prey, c)
+
+                # determine if we need to change lock_on
+                if self.lock_onto == None:
+                    self.lock_onto = c
+                else:
+                    pass  # don't change lock_on to this
+                
+                if self.lock_onto == c:
+                    if self.try_chase(c):
+                        did_chase = True
+                        self.lock_onto = c if c.is_alive else None
+                        break  # only chase one Prey for each step
+                    else:
+                        pass
+                else:
+                    pass  # don't attempt to chase
             else:
-                self.increase_stamina(self.stamina_recharge)
+                pass  # do nothing for this - not chasable
+        
+        if did_chase:
+            self.decrease_stamina()
+        else:
+            self.increase_stamina(self.stamina_recharge)
+        
+
+    def can_chase(self, c: Creature):
+        return isinstance(c, Prey) and self.can_detect(c) and c.is_alive and c != self
 
     def try_chase(self, prey: Prey):
         vt = self.vector_to(prey)
-        self.try_move_to(self.pos + vt)
+        did_chase = self.try_move_to(self.pos + vt)
 
-        if self.has_caught(prey):
+        if did_chase and self.has_caught(prey):
             prey.is_alive = False
+        else:
+            pass
+        return did_chase
 
     def has_caught(self, prey):
         return np.linalg.norm(prey.pos - self.pos) <= 1
-
 
 
 class Prey(Creature):
@@ -119,18 +149,29 @@ class Prey(Creature):
     def step(self):
         if not self.is_alive:
             return
-
+        
+        did_flee = False
+        found_threat = False
         for c in self.game_data.creatures:
-            if c == self:
-                continue
-
-            if isinstance(c, Hunter) and self.can_detect(c):
-                self.make_alert()
-                self.try_flee(c)
-                break  # don't flee from multiple predators (for now)
+            if self.is_threat(c):
+                found_threat = True
+                if self.try_flee(c):
+                    did_flee = True
+                    break  # only flee once per step
+                else:
+                    pass  # did not flee from this threat
             else:
-                self.lower_alert()
-                self.increase_stamina(self.stamina_recharge)
+                pass  # not a threat
+
+        if not found_threat:
+            self.lower_alert()
+        else:
+            self.make_alert()
+
+        if did_flee:
+            self.decrease_stamina()
+        else:    
+            self.increase_stamina(self.stamina_recharge)
 
     def try_flee(self, hunter):
         vt = self.vector_to(hunter)
@@ -148,6 +189,9 @@ class Prey(Creature):
                 )
 
         return self.try_move_to(new_pos)
+    
+    def is_threat(self, c: Creature):
+        return c.is_alive and c != self and isinstance(c, Hunter) and self.can_detect(c)
 
     def make_alert(self):
         if self.is_alert == False:
@@ -167,7 +211,7 @@ class GameInit(TypedDict):
 
 class HuntersGame:
     def __init__(self, game_init):
-        self.creatures = []
+        self.creatures: List[Creature] = []
         self.map_dim = np.array([game_init["map_dim"][0], game_init["map_dim"][1]])
 
     def step(self):
@@ -189,44 +233,47 @@ def draw_creature(c: Creature, screen):
     color = [0, 0, 0]
     if not c.is_alive:
         return
-    
+
     if isinstance(c, Prey):
         color = [50, 50, 255]
     elif isinstance(c, Hunter):
-        color = [255, 50, 50]
+        if c.lock_onto != None:
+            color = [255, 0, 0]
+        else:
+            color = [255, 200, 0]
 
     pygame.draw.circle(screen, color, (c.pos[0], c.pos[1]), 5)
 
 
 def init_game_data():
-    hunter_init: CreatureInit = {
-        "pos_x": 10,
-        "pos_y": 10,
-        "speed": 3,
-        "detect_range": 500,
-        "max_stamina": 100,
-        "stamina_threshold": 90,
-    }
-
-    prey_init: CreatureInit = {
-        "pos_x": 100,
-        "pos_y": 150,
-        "speed": 2,
-        "detect_range": 100,
-        "max_stamina": 200,
-        "stamina_threshold": 20,
-        "stamina_recharge": 5
-    }
 
     game_init: GameInit = {
         "map_dim": (500, 500),
     }
-
     game_data = HuntersGame(game_init)
 
-    # invoking the constructor adds them to the game
+    hunter_init: CreatureInit = {
+        "pos_x": 10,
+        "pos_y": 10,
+        "speed": 3,
+        "detect_range": 300,
+        "max_stamina": 100,
+        "stamina_threshold": 90,
+    }
+    # invoking constructor adds it to the game object
     Hunter(hunter_init, game_data)
-    Prey(prey_init, game_data)
+
+    for i in range(0, 6):
+        prey_init: CreatureInit = {
+            "pos_x": rdm.random() * 100,
+            "pos_y": rdm.random() * 150,
+            "speed": 2,
+            "detect_range": 100,
+            "max_stamina": 200,
+            "stamina_threshold": 20,
+            "stamina_recharge": 5,
+        }
+        Prey(prey_init, game_data)
 
     return game_data
 
