@@ -204,18 +204,18 @@ def init_game_data():
         "pos_y": 10,
         "speed": 3,
         "detect_range": 500,
-        "max_stamina": 80,
-        "stamina_threshold": 70,
+        "max_stamina": 100,
+        "stamina_threshold": 90,
     }
 
     prey_init: CreatureInit = {
         "pos_x": 100,
         "pos_y": 150,
-        "speed": 2.5,
+        "speed": 2,
         "detect_range": 100,
         "max_stamina": 200,
         "stamina_threshold": 20,
-        "stamina_recharge": 10
+        "stamina_recharge": 5
     }
 
     game_init: GameInit = {
