@@ -37,8 +37,8 @@ class Creature:
         self.max_stamina = ci.get("max_stamina", 100)
         self.stamina = self.max_stamina
         self.on_stamina_recharge = False
-        self.stamina_threshold = ci.get("stamina_threshold", 10)
-        self.stamina_recharge = ci.get("stamina_recharge", 1)
+        self.stamina_recharge_threshold = ci.get("stamina_threshold", 10)
+        self.stamina_recharge_rate = ci.get("stamina_recharge", 1)
 
         self.is_alive = True
 
@@ -51,16 +51,18 @@ class Creature:
         else:
             pass
 
-
     def can_detect(self, other):
         # magnitude of the difference vector = distance
         return np.linalg.norm(other.pos - self.pos) <= self.detect_range
 
-    def vector_to(self, other):
+    def run_vector_towards(self, other: Creature):
         # unit vector pointing from self to other
-        uv = (other.pos - self.pos) / np.linalg.norm(other.pos - self.pos)
+        uv = (other.pos - self.pos) / self.distance_to(other)
         # make magnitude of speed
         return uv * self.speed
+    
+    def distance_to(self, other: Creature):
+        return np.linalg.norm(other.pos - self.pos)
 
     def increase_stamina(self, amount: float = 1):
         self.stamina += amount
@@ -68,7 +70,7 @@ class Creature:
         if self.stamina > self.max_stamina:
             self.stamina = self.max_stamina
 
-        if self.stamina >= self.stamina_threshold:
+        if self.stamina >= self.stamina_recharge_threshold:
             self.on_stamina_recharge = False
 
     def decrease_stamina(self, amount=1):
@@ -76,6 +78,20 @@ class Creature:
         if self.stamina <= 0:
             self.stamina = 0
             self.on_stamina_recharge = True
+
+    def find_alt_vector(self, vec: np.ndarray):
+        new_pos = self.pos + vec
+
+        loop_count = 0
+        while not self.game_data.valid_pos(new_pos):
+            vec = rotate_vector(vec, np.pi / 16)
+            new_pos = self.pos + vec
+            loop_count += 1
+            if loop_count > 1000:
+                raise RuntimeError(
+                    "Infinite loop while searching for valid position"
+                )
+        return vec
 
     def try_move_to(self, new_pos: np.ndarray):
         if not self.game_data.valid_pos(new_pos):
@@ -93,8 +109,40 @@ class Creature:
 class Hunter(Creature):
     def __init__(self, hunter_data: CreatureInit, game_data: HuntersGame):
         self.is_stealth = False
-        self.lock_onto = None
+        self.target = None
+        self.target_change_factor = 0.5
         super().__init__(hunter_data, game_data)
+
+    def eval_target(self, p: Prey | None):
+        if p == None:
+            return False
+        
+        if not p.is_alive:
+            if self.target == p:
+                self.target = None
+            return False
+
+        # acquire first lock
+        if self.target == None:
+            self.target = p
+            return True
+        # already locked onto this
+        elif self.target == p:
+            # assess if prey is dead
+            self.target = None if not p.is_alive else self.target
+            return True
+        # check if we should change targets
+        elif self.target != p:
+            # if the distance to this new target is less than the tgt chg factor...
+            if self.distance_to(p) < self.target_change_factor * self.distance_to(self.target):
+                # switch to this target
+                self.target = p
+                return True
+            else:
+                return False
+        else:
+            # this shouldn't happen
+            raise RuntimeError("eval_target() is broken")
 
     def step(self):
         if not self.is_alive:
@@ -107,37 +155,35 @@ class Hunter(Creature):
             if self.can_chase(c):
                 c = cast(Prey, c)
 
-                # determine if we need to change lock_on
-                if self.lock_onto == None:
-                    self.lock_onto = c
-                else:
-                    pass  # don't change lock_on to this
-                
-                if self.lock_onto == c:
-                    if self.try_chase(c):
-                        did_chase = True
-                        self.lock_onto = c if c.is_alive else None
-                        break  # only chase one Prey for each step
-                    else:
-                        pass
-                else:
-                    pass  # don't attempt to chase
+                # determine if we need to change or keep target
+                self.eval_target(c)
             else:
                 pass  # do nothing for this - not chasable
         
+        did_chase = self.try_chase(self.target)
+        
         if did_chase:
             self.decrease_stamina()
+            self.eval_target(self.target) # check if we should keep this target
         else:
-            self.increase_stamina(self.stamina_recharge)
+            self.increase_stamina(self.stamina_recharge_rate)
             self.wander()
         
 
     def can_chase(self, c: Creature):
         return isinstance(c, Prey) and self.can_detect(c) and c.is_alive and c != self
 
-    def try_chase(self, prey: Prey):
-        vt = self.vector_to(prey)
-        did_chase = self.try_move_to(self.pos + vt)
+    def try_chase(self, prey: Prey | None):
+        if prey == None:
+            return False
+        
+        vec = self.run_vector_towards(prey)
+        new_pos = self.pos + vec
+        if not self.game_data.valid_pos(new_pos):
+            vec = self.find_alt_vector(vec)
+            new_pos = self.pos + vec
+        
+        did_chase = self.try_move_to(self.pos + vec)
 
         if did_chase and self.has_caught(prey):
             prey.is_alive = False
@@ -179,23 +225,17 @@ class Prey(Creature):
         if did_flee:
             self.decrease_stamina()
         else:    
-            self.increase_stamina(self.stamina_recharge)
+            self.increase_stamina(self.stamina_recharge_rate)
             self.wander()
 
     def try_flee(self, hunter):
-        vt = self.vector_to(hunter)
-        new_pos = self.pos - vt
-        loop_count = 0
+        vec = self.run_vector_towards(hunter) * -1
+        new_pos = self.pos + vec
 
         # if invalid position, find a new valid one
-        while not self.game_data.valid_pos(new_pos):
-            vt = rotate_vector(vt, np.pi / 8)
-            new_pos = self.pos - vt
-            loop_count += 1
-            if loop_count > 1000:
-                raise RuntimeError(
-                    "Infinite loop while searching for valid flee position"
-                )
+        if not self.game_data.valid_pos(new_pos):
+            vec = self.find_alt_vector(vec)
+            new_pos = self.pos + vec
 
         return self.try_move_to(new_pos)
     
@@ -249,7 +289,9 @@ def draw_creature(c: Creature, screen):
         else:
             color = [50, 255, 50]
     elif isinstance(c, Hunter):
-        if c.lock_onto != None:
+        if c.on_stamina_recharge:
+            color = [255, 0, 255]
+        elif c.target != None:
             color = [255, 0, 0]
         else:
             color = [255, 200, 0]
@@ -268,14 +310,14 @@ def init_game_data():
         "pos_x": 10,
         "pos_y": 10,
         "speed": 3,
-        "detect_range": 300,
-        "max_stamina": 100,
-        "stamina_threshold": 90,
+        "detect_range": 400,
+        "max_stamina": 200,
+        "stamina_threshold": 180,
     }
     # invoking constructor adds it to the game object
     Hunter(hunter_init, game_data)
 
-    for i in range(0, 6):
+    for i in range(0, 200):
         prey_init: CreatureInit = {
             "pos_x": rdm.random() * 100,
             "pos_y": rdm.random() * 150,
