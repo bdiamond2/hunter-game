@@ -4,6 +4,7 @@ import pygame
 import sys
 from typing import TypedDict, Tuple, List, cast
 import random as rdm
+import math
 
 
 def rotate_vector(v: np.ndarray, theta: float) -> np.ndarray:
@@ -51,7 +52,7 @@ class Creature:
         else:
             pass
 
-    def can_detect(self, other):
+    def can_detect(self, other: Creature):
         # magnitude of the difference vector = distance
         return np.linalg.norm(other.pos - self.pos) <= self.detect_range
 
@@ -191,7 +192,7 @@ class Hunter(Creature):
             pass
         return did_chase
 
-    def has_caught(self, prey):
+    def has_caught(self, prey: Prey):
         return np.linalg.norm(prey.pos - self.pos) <= 1
 
 
@@ -204,23 +205,30 @@ class Prey(Creature):
         if not self.is_alive:
             return
         
+        # satisfaction from next decision
+        util: float = 0
+        
         did_flee = False
-        found_threat = False
+        max_threat_level = 0
+        max_threat_hunter: Hunter | None = None
+
         for c in self.game_data.creatures:
             if self.is_threat(c):
-                found_threat = True
-                if self.try_flee(c):
-                    did_flee = True
-                    break  # only flee once per step
+                c = cast(Hunter, c)
+                threat_level = max(self.get_threat_level(c), 0)  # extra precaution against negative threats
+                if threat_level > max_threat_level:
+                    max_threat_level = threat_level
+                    max_threat_hunter = c
                 else:
-                    pass  # did not flee from this threat
+                    pass # not highest threat
             else:
                 pass  # not a threat
 
-        if not found_threat:
+        if max_threat_level == 0:  # no threat found
             self.lower_alert()
         else:
             self.make_alert()
+            did_flee = self.try_flee(max_threat_hunter)
 
         if did_flee:
             self.decrease_stamina()
@@ -228,7 +236,34 @@ class Prey(Creature):
             self.increase_stamina(self.stamina_recharge_rate)
             self.wander()
 
-    def try_flee(self, hunter):
+    def get_threat_level(self, hunter: Hunter):
+        if not self.is_threat(hunter):
+            return 0
+
+        # "normalized" distance to predator, as pct of detect_range
+        d_norm = self.distance_to(hunter) / self.detect_range
+        
+        # logistic signmoid function
+        if d_norm <= 0.01:
+            threat_level = 1
+        elif d_norm >= 0.99:
+            threat_level = 0
+        else:
+            # sigmoid logistic function
+            k = 10
+            threat_level = 1 / (1 + math.exp((k * (d_norm - 0.5))))
+
+        return threat_level
+
+    def get_utility(self, new_pos: np.ndarray):
+        pass
+        # 1.) highest utility: gaining max distance from predator
+        # 2.) gaining less than max distance from predator
+
+    def try_flee(self, hunter: Hunter | None):
+        if hunter == None:
+            return False
+
         vec = self.run_vector_towards(hunter) * -1
         new_pos = self.pos + vec
 
@@ -254,7 +289,6 @@ class Prey(Creature):
 
 
 class GameInit(TypedDict):
-    # creatures: List[Creature]
     map_dim: Tuple[float, float]
 
 
@@ -306,18 +340,19 @@ def init_game_data():
     }
     game_data = HuntersGame(game_init)
 
-    hunter_init: CreatureInit = {
-        "pos_x": 10,
-        "pos_y": 10,
-        "speed": 3,
-        "detect_range": 400,
-        "max_stamina": 200,
-        "stamina_threshold": 180,
-    }
-    # invoking constructor adds it to the game object
-    Hunter(hunter_init, game_data)
+    for i in range(0, 2):
+        hunter_init: CreatureInit = {
+            "pos_x": 50 * (i + 1),
+            "pos_y": 50 * (i + 3),
+            "speed": 3,
+            "detect_range": 400,
+            "max_stamina": 200,
+            "stamina_threshold": 180,
+        }
+        # invoking constructor adds it to the game object
+        Hunter(hunter_init, game_data)
 
-    for i in range(0, 200):
+    for i in range(0, 20):
         prey_init: CreatureInit = {
             "pos_x": rdm.random() * 100,
             "pos_y": rdm.random() * 150,
