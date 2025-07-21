@@ -13,6 +13,9 @@ def rotate_vector(v: np.ndarray, theta: float) -> np.ndarray:
     )
     return rotation_matrix @ v  # matrix multiply
 
+def distance_to(p1: np.ndarray, p2: np.ndarray):
+    return np.linalg.norm(p1 - p2)
+
 
 class CreatureInit(TypedDict, total=False):
     pos_x: float
@@ -58,12 +61,12 @@ class Creature:
 
     def run_vector_towards(self, other: Creature):
         # unit vector pointing from self to other
-        uv = (other.pos - self.pos) / self.distance_to(other)
+        uv = (other.pos - self.pos) / distance_to(self.pos, other.pos)
         # make magnitude of speed
         return uv * self.speed
     
-    def distance_to(self, other: Creature):
-        return np.linalg.norm(other.pos - self.pos)
+    # def distance_to(self, other: Creature):
+    #     return np.linalg.norm(other.pos - self.pos)
 
     def increase_stamina(self, amount: float = 1):
         self.stamina += amount
@@ -135,7 +138,7 @@ class Hunter(Creature):
         # check if we should change targets
         elif self.target != p:
             # if the distance to this new target is less than the tgt chg factor...
-            if self.distance_to(p) < self.target_change_factor * self.distance_to(self.target):
+            if distance_to(self.pos, p.pos) < self.target_change_factor * distance_to(self.pos, self.target.pos):
                 # switch to this target
                 self.target = p
                 return True
@@ -198,50 +201,89 @@ class Hunter(Creature):
 
 class Prey(Creature):
     def __init__(self, prey_init: CreatureInit, game_data: HuntersGame):
-        self.is_alert = False
         super().__init__(prey_init, game_data)
+        self.is_alert = False
+        self.threat_cluster_radius = self.detect_range * 0.1
 
     def step(self):
         if not self.is_alive:
             return
         
-        # satisfaction from next decision
-        util: float = 0
-        
         did_flee = False
         max_threat_level = 0
         max_threat_hunter: Hunter | None = None
 
-        for c in self.game_data.creatures:
-            if self.is_threat(c):
-                c = cast(Hunter, c)
-                threat_level = max(self.get_threat_level(c), 0)  # extra precaution against negative threats
-                if threat_level > max_threat_level:
-                    max_threat_level = threat_level
-                    max_threat_hunter = c
-                else:
-                    pass # not highest threat
-            else:
-                pass  # not a threat
-
-        if max_threat_level == 0:  # no threat found
-            self.lower_alert()
-        else:
+        if self.get_collective_threat_level_at(self.pos) > 0:
             self.make_alert()
-            did_flee = self.try_flee(max_threat_hunter)
+            vec = self.scan_for_vector()
+            did_flee = self.try_move_to(vec + self.pos)
+        else:
+            self.lower_alert()
+            self.wander()
 
         if did_flee:
             self.decrease_stamina()
-        else:    
+        else:
             self.increase_stamina(self.stamina_recharge_rate)
-            self.wander()
 
-    def get_threat_level(self, hunter: Hunter):
+
+        # for c in self.game_data.creatures:
+        #     if self.is_threat(c):
+        #         c = cast(Hunter, c)
+        #         threat_level = max(self.get_one_threat_level_at(c, c.pos), 0)  # extra precaution against negative threats
+        #         if threat_level > max_threat_level:
+        #             max_threat_level = threat_level
+        #             max_threat_hunter = c
+        #         else:
+        #             pass # not highest threat
+        #     else:
+        #         pass  # not a threat
+
+        # if max_threat_level == 0:  # no threat found
+        #     self.lower_alert()
+        # else:
+        #     self.make_alert()
+        #     did_flee = self.try_flee(max_threat_hunter)
+
+        # if did_flee:
+        #     self.decrease_stamina()
+        # else:
+        #     self.increase_stamina(self.stamina_recharge_rate)
+        #     self.wander()
+
+    def scan_for_vector(self) -> np.ndarray:
+        min_threat = 100000
+        best_vec: np.ndarray = np.array([self.speed, 0])
+        vec = best_vec
+
+        scans = 8
+        # print("\n\n==== Scanning begin ====")
+        # print(f"Current position: {self.pos}")
+        # print(f"Current collective threat level: {self.get_collective_threat_level_at(self.pos)}")
+        for i in range(0, scans):
+            vec = rotate_vector(vec, 2 * math.pi / scans)
+            new_pos = self.pos + vec
+            # print(f"\nChecking {new_pos}...")
+            if not self.game_data.valid_pos(new_pos):
+                # print("Invalid location, trying next one")
+                continue
+            t = self.get_collective_threat_level_at(new_pos)
+            # print(f"Collective threat level at new position {new_pos} = {t}")
+            if t < min_threat:
+                # print(f"{t} < {min_threat}, new best position is {new_pos}")
+                min_threat = t
+                best_vec = vec
+        # print("==== Scanning end ==== \n\n")
+
+        return best_vec
+        
+
+    def get_one_threat_level_at(self, hunter: Hunter, pos: np.ndarray):
         if not self.is_threat(hunter):
             return 0
 
         # "normalized" distance to predator, as pct of detect_range
-        d_norm = self.distance_to(hunter) / self.detect_range
+        d_norm = distance_to(pos, hunter.pos) / self.detect_range
         
         # logistic signmoid function
         if d_norm <= 0.01:
@@ -254,6 +296,30 @@ class Prey(Creature):
             threat_level = 1 / (1 + math.exp((k * (d_norm - 0.5))))
 
         return threat_level
+
+    def get_collective_threat_level_at(self, pos: np.ndarray):
+        hunters: List[Hunter] = []
+        total_threat = 0
+        
+        for c in self.game_data.creatures:
+            if isinstance(c, Hunter):
+                hunters.append(cast(Hunter, c))
+
+        for i, h1 in enumerate(hunters):
+            # print(f"Checking hunter {i}...")
+            isolated_threat = self.get_one_threat_level_at(h1, pos)
+            # print(f"Isolated threat level of hunter {i} = {isolated_threat}")
+            nearby = 0
+            for h2 in hunters:
+                if h1 != h2 and distance_to(h1.pos, h2.pos) <= self.threat_cluster_radius:
+                    nearby += 1
+            discount = 1 / (1 + nearby)
+            total_threat += isolated_threat * discount
+
+        # print(f"Total threat level at {pos} = {total_threat}")
+        return total_threat
+
+        
 
     def get_utility(self, new_pos: np.ndarray):
         pass
@@ -286,7 +352,6 @@ class Prey(Creature):
         if self.is_alert:
             self.is_alert = False
             self.detect_range *= 0.5
-
 
 class GameInit(TypedDict):
     map_dim: Tuple[float, float]
@@ -342,8 +407,8 @@ def init_game_data():
 
     for i in range(0, 2):
         hunter_init: CreatureInit = {
-            "pos_x": 50 * (i + 1),
-            "pos_y": 50 * (i + 3),
+            "pos_x": rdm.random() * 300,
+            "pos_y": rdm.random() * 300,
             "speed": 3,
             "detect_range": 400,
             "max_stamina": 200,
@@ -352,10 +417,10 @@ def init_game_data():
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
 
-    for i in range(0, 20):
+    for i in range(0, 50):
         prey_init: CreatureInit = {
-            "pos_x": rdm.random() * 100,
-            "pos_y": rdm.random() * 150,
+            "pos_x": rdm.random() * 300,
+            "pos_y": rdm.random() * 300,
             "speed": 2,
             "detect_range": 100,
             "max_stamina": 200,
