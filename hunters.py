@@ -277,7 +277,7 @@ class Prey(Creature):
             total_hunter_threat += isolated_threat * discount
 
         # penalty for being far from center of map
-        max_distance = 0.5 * math.hypot(self.game_data.x_dim, self.game_data.y_dim)
+        max_distance = 0.5 * math.hypot(self.game_data.width, self.game_data.height)
         dist_from_center = distance_to(self.game_data.map_middle, pos)
         dist_norm = dist_from_center / max_distance
         dist_penalty_norm = min(2 / (1 + math.exp(-5 * (dist_norm - 1))), 1)
@@ -318,26 +318,29 @@ class Prey(Creature):
 
 
 class GameInit(TypedDict):
-    map_dim: Tuple[float, float]
+    height: float
+    width: float
+    
 
 
 class HuntersGame:
     def __init__(self, game_init):
-        self.creatures: List[Creature] = []
+        self.creature_list: List[Creature] = []
         self.prey_list: List[Prey] = []
         self.hunter_list: List[Hunter] = []
-        self.map_dim = np.array([game_init["map_dim"][0], game_init["map_dim"][1]])
-        self.x_dim = self.map_dim[0]
-        self.y_dim = self.map_dim[1]
+        self.width = game_init["width"]
+        self.height = game_init["height"]
+        self.map_dim = np.array([self.width, self.height])
         self.map_middle = self.map_dim / 2.0
+        self.threat_field = np.zeros((self.width, self.height))
 
     def step(self):
-        for c in self.creatures:
+        for c in self.creature_list:
             c.step()  # pass game data
 
     def add_creature(self, c: Creature):
-        if c not in self.creatures:
-            self.creatures.append(c)
+        if c not in self.creature_list:
+            self.creature_list.append(c)
 
         if isinstance(c, Prey):
             c = cast(Prey, c)
@@ -351,6 +354,30 @@ class HuntersGame:
             not (pos > self.map_dim).any()
             and (pos > np.array([0, 0], dtype=float)).all()
         )
+    
+    def calc_threat_field(self):
+        h, w = self.threat_field.shape
+        
+        xs = np.arange(w)
+        ys = np.arange(h)
+        X, Y = np.meshgrid(xs, ys, indexing='xy')
+        
+        # Initialize the product term (start at 1 for multiplication)
+        product_term = np.ones((h, w), dtype=np.float64)
+        
+        for hunter in self.hunter_list:
+            
+            px, py = hunter.pos[0], hunter.pos[1]
+            sigma = hunter.detect_range / 2
+            
+            dist_sq = (X - px) ** 2 + (Y - py) ** 2
+            threat = np.exp(-dist_sq / (2 * sigma ** 2))
+            
+            # Update product term for combined threat formula
+            product_term *= (1 - threat / 2)
+        
+        # Final combined threat
+        self.threat_field[:] = 2 * (1 - product_term)
 
 
 def draw_creature(c: Creature, screen):
@@ -374,36 +401,54 @@ def draw_creature(c: Creature, screen):
     pygame.draw.circle(screen, color, (c.pos[0], c.pos[1]), 5)
 
 
+def draw_arr(arr: np.ndarray, screen):
+    def value_to_color(val):
+        red = min(int(val * 255), 255)
+        blue = 255 - red
+        return (red, 0, blue)
+    w, h = arr.shape
+    step = 20
+
+    for i in range(0, w, step):
+        for j in range(0, h, step):
+            val = arr[j, i]
+            color = value_to_color(val)
+            pygame.draw.circle(screen, color, (i, j), 15)
+
+
 def init_game_data():
 
     game_init: GameInit = {
-        "map_dim": (500, 500),
+        "height": 600,
+        "width": 600
     }
     game_data = HuntersGame(game_init)
 
-    for i in range(0, 5):
+    for i in range(0, 1):
         hunter_init: CreatureInit = {
-            "pos_x": rdm.random() * 300,
-            "pos_y": rdm.random() * 300,
-            "speed": 3,
-            "detect_range": 400,
+            "pos_x": rdm.random() * game_data.width,
+            "pos_y": rdm.random() * game_data.height,
+            "speed": 1,
+            "detect_range": 350,
             "max_stamina": 200,
             "stamina_threshold": 180,
         }
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
 
-    for i in range(0, 50):
+    for i in range(0, 1):
         prey_init: CreatureInit = {
             "pos_x": rdm.random() * 300,
             "pos_y": rdm.random() * 300,
-            "speed": 2,
-            "detect_range": 100,
+            "speed": 4,
+            "detect_range": 400,
             "max_stamina": 200,
             "stamina_threshold": 20,
             "stamina_recharge": 5,
         }
         Prey(prey_init, game_data)
+
+    game_data.calc_threat_field()
 
     return game_data
 
@@ -412,7 +457,7 @@ def main():
     game_data = init_game_data()
 
     pygame.init()
-    w, h = game_data.map_dim[0], game_data.map_dim[1]
+    w, h = game_data.width, game_data.height
     screen = pygame.display.set_mode((w, h))
     clock = pygame.time.Clock()
 
@@ -425,8 +470,11 @@ def main():
         screen.fill((255, 255, 255))
 
         game_data.step()
+        game_data.calc_threat_field()
 
-        for c in game_data.creatures:
+        draw_arr(game_data.threat_field, screen)
+
+        for c in game_data.creature_list:
             draw_creature(c, screen)
 
         pygame.display.flip()
