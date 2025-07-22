@@ -1,7 +1,5 @@
 import numpy as np
 
-w, h = 3, 10
-arr = np.random.rand(w, h)
-xs, ys = np.meshgrid(np.arange(w), np.arange(h), indexing='xy')
+val = 5.1
 
-print(xs, '\n\n', ys)
+print(np.clip(val, 0, 5))

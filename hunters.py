@@ -399,21 +399,29 @@ def draw_creature(c: Creature, screen):
             color = [255, 200, 0]
 
     pygame.draw.circle(screen, color, (c.pos[0], c.pos[1]), 5)
+    pygame.draw.circle(screen, (0,0,0), (c.pos[0], c.pos[1]), c.detect_range, width=1)
+
 
 
 def draw_arr(arr: np.ndarray, screen):
-    def value_to_color(val):
-        red = min(int(val * 255), 255)
-        blue = 255 - red
-        return (red, 0, blue)
+    def value_to_color(val: float):
+        c1 = 50
+        c2 = 255
+        val = np.clip(val, 0, 1)
+        level = int(abs(c2 - c1)*(1 - val) + c1)
+        return (level, level, level)
+    
+    a = max(1, 2)
+
     w, h = arr.shape
     step = 20
+    px = 20
 
     for i in range(0, w, step):
         for j in range(0, h, step):
             val = arr[j, i]
             color = value_to_color(val)
-            pygame.draw.circle(screen, color, (i, j), 15)
+            pygame.draw.rect(screen, color, (i - px/2, j - px/2, px, px))
 
 
 def init_game_data():
@@ -428,20 +436,21 @@ def init_game_data():
         hunter_init: CreatureInit = {
             "pos_x": rdm.random() * game_data.width,
             "pos_y": rdm.random() * game_data.height,
-            "speed": 1,
-            "detect_range": 350,
+            "speed": 3,
+            "detect_range": 200,
             "max_stamina": 200,
             "stamina_threshold": 180,
+            "stamina_recharge": 1
         }
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
 
-    for i in range(0, 1):
+    for i in range(0, 3):
         prey_init: CreatureInit = {
             "pos_x": rdm.random() * 300,
             "pos_y": rdm.random() * 300,
-            "speed": 4,
-            "detect_range": 400,
+            "speed": 3,
+            "detect_range": 100,
             "max_stamina": 200,
             "stamina_threshold": 20,
             "stamina_recharge": 5,
