@@ -193,7 +193,7 @@ class Hunter(Creature):
         return did_chase
 
     def has_caught(self, prey: Prey):
-        return np.linalg.norm(prey.pos - self.pos) <= 1
+        return np.linalg.norm(prey.pos - self.pos) <= self.speed
 
 
 class Prey(Creature):
@@ -470,11 +470,11 @@ def init_game_data():
         hunter_init: CreatureInit = {
             "pos_x": rdm.random() * game_data.width,
             "pos_y": rdm.random() * game_data.height,
-            "speed": 3.5,
+            "speed": 10,
             "detect_range": 400,
-            "max_stamina": 200,
-            "stamina_threshold": 180,
-            "stamina_recharge": 1
+            "max_stamina": 1000,
+            "stamina_threshold": 1000,
+            "stamina_recharge": 10
         }
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
