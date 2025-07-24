@@ -2,7 +2,7 @@ from __future__ import annotations
 import numpy as np
 import pygame
 import sys
-from typing import TypedDict, Tuple, List, cast
+from typing import TypedDict, List, cast
 import random as rdm
 import math
 
@@ -332,7 +332,7 @@ class HuntersGame:
         self.height = game_init["height"]
         self.map_dim = np.array([self.width, self.height])
         self.map_middle = self.map_dim / 2.0
-        self.threat_field = np.zeros((self.width, self.height))
+        self.threat_field: np.ndarray = np.zeros((self.width, self.height))
 
     def step(self):
         for c in self.creature_list:
@@ -366,9 +366,8 @@ class HuntersGame:
         product_term = np.ones((h, w), dtype=np.float64)
         
         for hunter in self.hunter_list:
-            
             px, py = hunter.pos[0], hunter.pos[1]
-            sigma = hunter.detect_range / 2
+            sigma = hunter.detect_range / 3
             
             dist_sq = (X - px) ** 2 + (Y - py) ** 2
             threat = np.exp(-dist_sq / (2 * sigma ** 2))
@@ -378,6 +377,9 @@ class HuntersGame:
         
         # Final combined threat
         self.threat_field[:] = 2 * (1 - product_term)
+
+    def calc_threat_field_pds(self):
+        pass
 
 
 def draw_creature(c: Creature, screen):
@@ -403,15 +405,11 @@ def draw_creature(c: Creature, screen):
 
 
 
-def draw_arr(arr: np.ndarray, screen):
+def draw_arr(arr: np.ndarray, screen, low:float = 0.0, high:float = 1.0):
     def value_to_color(val: float):
-        c1 = 50
-        c2 = 255
-        val = np.clip(val, 0, 1)
-        level = int(abs(c2 - c1)*(1 - val) + c1)
+        val = np.clip(val, low, high)
+        level = int(np.interp(val, [low, high], [255, 50]))
         return (level, level, level)
-    
-    a = max(1, 2)
 
     w, h = arr.shape
     step = 20
@@ -436,8 +434,8 @@ def init_game_data():
         hunter_init: CreatureInit = {
             "pos_x": rdm.random() * game_data.width,
             "pos_y": rdm.random() * game_data.height,
-            "speed": 3,
-            "detect_range": 200,
+            "speed": 3.5,
+            "detect_range": 300,
             "max_stamina": 200,
             "stamina_threshold": 180,
             "stamina_recharge": 1
@@ -481,7 +479,10 @@ def main():
         game_data.step()
         game_data.calc_threat_field()
 
-        draw_arr(game_data.threat_field, screen)
+        # draw_arr(game_data.threat_field, screen)
+        # dy, dx = np.gradient(game_data.threat_field)
+        arr = game_data.threat_field
+        draw_arr(arr, screen, low=np.min(arr), high=np.max(arr))
 
         for c in game_data.creature_list:
             draw_creature(c, screen)
