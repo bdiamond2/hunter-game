@@ -208,11 +208,21 @@ class Prey(Creature):
 
         did_flee = False
 
-        if self.get_collective_threat_level_at(self.pos) > 0:
+        # if self.get_collective_threat_level_at(self.pos) > 0:
+        #     self.make_alert()
+        #     if not self.on_stamina_recharge:
+        #         new_pos = self.scan_for_new_pos()
+        #         did_flee = self.try_move_to(new_pos)
+        if self.get_threat_level() > 0.8:
             self.make_alert()
-            if not self.on_stamina_recharge:
-                new_pos = self.scan_for_new_pos()
-                did_flee = self.try_move_to(new_pos)
+            vec = self.get_flee_vector()
+            
+            new_pos = self.pos + vec
+            if not self.game_data.valid_pos(new_pos):
+                vec = self.find_alt_vector(vec)
+                new_pos = self.pos + vec
+            
+            did_flee = self.try_move_to(new_pos)
         else:
             self.lower_alert()
             self.wander()
@@ -221,6 +231,20 @@ class Prey(Creature):
             self.decrease_stamina()
         else:
             self.increase_stamina(self.stamina_recharge_rate)
+
+    def get_threat_level(self):
+        x = int(self.pos[0])
+        y = int(self.pos[1])
+        return self.game_data.threat_field[y, x]
+    
+    def get_flee_vector(self):
+        x = int(self.pos[0])
+        y = int(self.pos[1])
+        dx = self.game_data.threat_gradient_x[y, x]
+        dy = self.game_data.threat_gradient_y[y, x]
+        vec = np.array([dx, dy])
+        mag = np.linalg.norm(vec)
+        return -1 * self.speed * vec / mag
 
     def scan_for_new_pos(self) -> np.ndarray:
         min_threat = 100000
@@ -293,6 +317,7 @@ class Prey(Creature):
         if hunter == None:
             return False
 
+
         vec = self.run_vector_towards(hunter) * -1
         new_pos = self.pos + vec
 
@@ -332,7 +357,11 @@ class HuntersGame:
         self.height = game_init["height"]
         self.map_dim = np.array([self.width, self.height])
         self.map_middle = self.map_dim / 2.0
-        self.threat_field: np.ndarray = np.zeros((self.width, self.height))
+
+        self.threat_field: np.ndarray
+        self.threat_gradient_x: np.ndarray
+        self.threat_gradient_y: np.ndarray
+
 
     def step(self):
         for c in self.creature_list:
@@ -356,7 +385,8 @@ class HuntersGame:
         )
     
     def calc_threat_field(self):
-        h, w = self.threat_field.shape
+        h = self.height
+        w = self.width
         
         xs = np.arange(w)
         ys = np.arange(h)
@@ -375,11 +405,11 @@ class HuntersGame:
             # Update product term for combined threat formula
             product_term *= (1 - threat / 2)
         
-        # Final combined threat
-        self.threat_field[:] = 2 * (1 - product_term)
-
-    def calc_threat_field_pds(self):
-        pass
+        # threat field
+        self.threat_field = 2 * (1 - product_term)
+        
+        # also update partial derivative gradient fields
+        self.threat_gradient_y, self.threat_gradient_x = np.gradient(self.threat_field)
 
 
 def draw_creature(c: Creature, screen):
@@ -400,8 +430,12 @@ def draw_creature(c: Creature, screen):
         else:
             color = [255, 200, 0]
 
+    # text_val = f"{round(c.pos[0])}, {round(c.pos[1])}"
+    # text_surface = pygame.font.SysFont(None, 24).render(text_val, True, (0,0,0))
+    # screen.blit(text_surface, (c.pos[0], c.pos[1]))
+
     pygame.draw.circle(screen, color, (c.pos[0], c.pos[1]), 5)
-    pygame.draw.circle(screen, (0,0,0), (c.pos[0], c.pos[1]), c.detect_range, width=1)
+    # pygame.draw.circle(screen, (0,0,0), (c.pos[0], c.pos[1]), c.detect_range, width=1)
 
 
 
@@ -425,8 +459,8 @@ def draw_arr(arr: np.ndarray, screen, low:float = 0.0, high:float = 1.0):
 def init_game_data():
 
     game_init: GameInit = {
-        "height": 600,
-        "width": 600
+        "height": 300,
+        "width": 300
     }
     game_data = HuntersGame(game_init)
 
@@ -435,7 +469,7 @@ def init_game_data():
             "pos_x": rdm.random() * game_data.width,
             "pos_y": rdm.random() * game_data.height,
             "speed": 3.5,
-            "detect_range": 300,
+            "detect_range": 400,
             "max_stamina": 200,
             "stamina_threshold": 180,
             "stamina_recharge": 1
@@ -443,7 +477,7 @@ def init_game_data():
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
 
-    for i in range(0, 3):
+    for i in range(0, 2):
         prey_init: CreatureInit = {
             "pos_x": rdm.random() * 300,
             "pos_y": rdm.random() * 300,
@@ -481,8 +515,10 @@ def main():
 
         # draw_arr(game_data.threat_field, screen)
         # dy, dx = np.gradient(game_data.threat_field)
-        arr = game_data.threat_field
-        draw_arr(arr, screen, low=np.min(arr), high=np.max(arr))
+        # arr = game_data.threat_field
+        # arr = cast(np.ndarray, game_data.threat_gradient_x)
+        # draw_arr(arr, screen, low=np.min(arr), high=np.max(arr))
+
 
         for c in game_data.creature_list:
             draw_creature(c, screen)
