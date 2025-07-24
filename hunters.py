@@ -216,11 +216,13 @@ class Prey(Creature):
         if self.get_threat_level() > 0.8:
             self.make_alert()
             vec = self.get_flee_vector()
-            
+
             new_pos = self.pos + vec
             if not self.game_data.valid_pos(new_pos):
                 vec = self.find_alt_vector(vec)
                 new_pos = self.pos + vec
+                # new_pos[0] %= self.game_data.width
+                # new_pos[1] %= self.game_data.height
             
             did_flee = self.try_move_to(new_pos)
         else:
@@ -459,8 +461,8 @@ def draw_arr(arr: np.ndarray, screen, low:float = 0.0, high:float = 1.0):
 def init_game_data():
 
     game_init: GameInit = {
-        "height": 300,
-        "width": 300
+        "height": 600,
+        "width": 700
     }
     game_data = HuntersGame(game_init)
 
@@ -477,10 +479,10 @@ def init_game_data():
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
 
-    for i in range(0, 2):
+    for i in range(0, 300):
         prey_init: CreatureInit = {
-            "pos_x": rdm.random() * 300,
-            "pos_y": rdm.random() * 300,
+            "pos_x": (rdm.random() * game_data.width/2) + game_data.width/4,
+            "pos_y": (rdm.random() * game_data.height/2) + game_data.height/4,
             "speed": 3,
             "detect_range": 100,
             "max_stamina": 200,
