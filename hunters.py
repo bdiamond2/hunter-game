@@ -86,7 +86,7 @@ class Creature:
         new_pos = self.pos + vec
 
         loop_count = 0
-        while not self.game_data.valid_pos(new_pos):
+        while not self.game_data.is_valid_pos(new_pos):
             vec = rotate_vector(vec, np.pi / 16)
             new_pos = self.pos + vec
             loop_count += 1
@@ -95,8 +95,9 @@ class Creature:
         return vec
 
     def try_move_to(self, new_pos: np.ndarray):
-        if not self.game_data.valid_pos(new_pos):
-            raise ValueError("Invalid coordinates")
+        if not self.game_data.is_valid_pos(new_pos):
+            # raise ValueError("Invalid coordinates")
+            pass
         else:
             pass
 
@@ -172,16 +173,16 @@ class Hunter(Creature):
         # flip to True if chasing happens
         did_chase = False
 
-        for c in self.game_data.prey_list:
-            if self.can_chase(c):
-                c = cast(Prey, c)
+        # for c in self.game_data.prey_list:
+        #     if self.can_chase(c):
+        #         c = cast(Prey, c)
 
-                # determine if we need to change or keep target
-                self.eval_target(c)
-            else:
-                pass  # do nothing for this - not chasable
+        #         # determine if we need to change or keep target
+        #         self.eval_target(c)
+        #     else:
+        #         pass  # do nothing for this - not chasable
 
-        did_chase = self.try_chase(self.target)
+        # did_chase = self.try_chase(self.target)
 
         if did_chase:
             self.decrease_stamina()
@@ -199,7 +200,7 @@ class Hunter(Creature):
 
         vec = self.run_vector_towards(prey)
         new_pos = self.pos + vec
-        if not self.game_data.valid_pos(new_pos):
+        if not self.game_data.is_valid_pos(new_pos):
             vec = self.find_alt_vector(vec)
             new_pos = self.pos + vec
 
@@ -227,14 +228,19 @@ class Prey(Creature):
 
         did_flee = False
 
-        if self.get_threat_level() > 0.8:
+        # if self.get_threat_level() > 0.75:
+        if True:
             self.make_alert()
+            # vec = self.get_util_max_vector()
             vec = self.get_flee_vector()
+            if np.isnan(vec).any():
+                vec = np.array([0, 0])
 
             new_pos = self.pos + vec
-            if not self.game_data.valid_pos(new_pos):
-                vec = self.find_alt_vector(vec)
-                new_pos = self.pos + vec
+            if not self.game_data.is_valid_pos(new_pos):
+                # vec = self.find_alt_vector(vec)
+                # new_pos = self.pos + vec
+                new_pos = np.array([self.game_data.width / 2, self.game_data.height / 2])
 
             did_flee = self.try_move_to(new_pos)
         else:
@@ -254,79 +260,78 @@ class Prey(Creature):
     def get_flee_vector(self):
         x = int(self.pos[0])
         y = int(self.pos[1])
-        # dx = self.game_data.threat_gradient_x[y, x]
-        # dy = self.game_data.threat_gradient_y[y, x]
-        # vec = np.array([dx, dy])
         vec = self.game_data.threat_gradient[y, x]
         mag = np.linalg.norm(vec)
         return -1 * self.speed * vec / mag
+    
+    def get_util_max_vector(self):
+        x = int(self.pos[0])
+        y = int(self.pos[1])
+        vec = self.game_data.prey_utility_gradient[y, x]
+        mag = np.linalg.norm(vec)
+        return self.speed * vec / mag
 
-    def scan_for_new_pos(self) -> np.ndarray:
-        min_threat = 100000
-        best_vec: np.ndarray = np.array([self.speed, 0])
-        best_pos = self.pos
-        vec = best_vec
+    # def scan_for_new_pos(self) -> np.ndarray:
+    #     min_threat = 100000
+    #     best_vec: np.ndarray = np.array([self.speed, 0])
+    #     best_pos = self.pos
+    #     vec = best_vec
 
-        scans = 8
-        for i in range(0, scans):
-            vec = rotate_vector(vec, 2 * math.pi / scans)
-            new_pos = self.pos + vec
-            if not self.game_data.valid_pos(new_pos):
-                continue
-            t = self.get_collective_threat_level_at(new_pos)
-            if t < min_threat:
-                min_threat = t
-                best_pos = new_pos
+    #     scans = 8
+    #     for i in range(0, scans):
+    #         vec = rotate_vector(vec, 2 * math.pi / scans)
+    #         new_pos = self.pos + vec
+    #         if not self.game_data.is_valid_pos(new_pos):
+    #             continue
+    #         t = self.get_collective_threat_level_at(new_pos)
+    #         if t < min_threat:
+    #             min_threat = t
+    #             best_pos = new_pos
 
-        return best_pos
+    #     return best_pos
 
-    def get_one_threat_level_at(self, hunter: Hunter, pos: np.ndarray):
-        if not self.is_threat(hunter):
-            return 0
+    # def get_one_threat_level_at(self, hunter: Hunter, pos: np.ndarray):
+    #     if not self.is_threat(hunter):
+    #         return 0
 
-        # "normalized" distance to predator, as pct of detect_range
-        d_norm = distance_to(pos, hunter.pos) / self.detect_range
+    #     # "normalized" distance to predator, as pct of detect_range
+    #     d_norm = distance_to(pos, hunter.pos) / self.detect_range
 
-        # logistic signmoid function
-        if d_norm <= 0.01:
-            threat_level = 1
-        elif d_norm >= 0.99:
-            threat_level = 0
-        else:
-            # sigmoid logistic function
-            k = 10
-            threat_level = 1 / (1 + math.exp((k * (d_norm - 0.5))))
+    #     # logistic signmoid function
+    #     if d_norm <= 0.01:
+    #         threat_level = 1
+    #     elif d_norm >= 0.99:
+    #         threat_level = 0
+    #     else:
+    #         # sigmoid logistic function
+    #         k = 10
+    #         threat_level = 1 / (1 + math.exp((k * (d_norm - 0.5))))
 
-        return threat_level
+    #     return threat_level
 
-    def get_collective_threat_level_at(self, pos: np.ndarray):
-        # hunters: List[Hunter] = []
-        total_hunter_threat = 0
+    # def get_collective_threat_level_at(self, pos: np.ndarray):
+    #     # hunters: List[Hunter] = []
+    #     total_hunter_threat = 0
 
-        for h1 in self.game_data.hunter_list:
-            isolated_threat = self.get_one_threat_level_at(h1, pos)
-            nearby = 0
-            for h2 in self.game_data.hunter_list:
-                if (
-                    h1 != h2
-                    and distance_to(h1.pos, h2.pos) <= self.threat_cluster_radius
-                ):
-                    nearby += 1
-            discount = 1 / (1 + nearby)
-            total_hunter_threat += isolated_threat * discount
+    #     for h1 in self.game_data.hunter_list:
+    #         isolated_threat = self.get_one_threat_level_at(h1, pos)
+    #         nearby = 0
+    #         for h2 in self.game_data.hunter_list:
+    #             if (
+    #                 h1 != h2
+    #                 and distance_to(h1.pos, h2.pos) <= self.threat_cluster_radius
+    #             ):
+    #                 nearby += 1
+    #         discount = 1 / (1 + nearby)
+    #         total_hunter_threat += isolated_threat * discount
 
-        # penalty for being far from center of map
-        max_distance = 0.5 * math.hypot(self.game_data.width, self.game_data.height)
-        dist_from_center = distance_to(self.game_data.map_middle, pos)
-        dist_norm = dist_from_center / max_distance
-        dist_penalty_norm = min(2 / (1 + math.exp(-5 * (dist_norm - 1))), 1)
+    #     # penalty for being far from center of map
+    #     max_distance = 0.5 * math.hypot(self.game_data.width, self.game_data.height)
+    #     dist_from_center = distance_to(self.game_data.map_middle, pos)
+    #     dist_norm = dist_from_center / max_distance
+    #     dist_penalty_norm = min(2 / (1 + math.exp(-5 * (dist_norm - 1))), 1)
 
-        return total_hunter_threat * (1 + dist_penalty_norm)
-
-    def get_utility(self, new_pos: np.ndarray):
-        pass
-        # 1.) highest utility: gaining max distance from predator
-        # 2.) gaining less than max distance from predator
+    #     return total_hunter_threat * (1 + dist_penalty_norm)
 
     def try_flee(self, hunter: Hunter | None):
         if hunter == None:
@@ -336,7 +341,7 @@ class Prey(Creature):
         new_pos = self.pos + vec
 
         # if invalid position, find a new valid one
-        if not self.game_data.valid_pos(new_pos):
+        if not self.game_data.is_valid_pos(new_pos):
             vec = self.find_alt_vector(vec)
             new_pos = self.pos + vec
 
@@ -373,12 +378,18 @@ class HuntersGame:
 
         self.threat_field: np.ndarray
         self.threat_gradient: np.ndarray
-        # self.threat_gradient_x: np.ndarray
-        # self.threat_gradient_y: np.ndarray
+
+        self.hunter_utility_field: np.ndarray
+        self.hunter_utility_field: np.ndarray
+
+        self.prey_utility_field: np.ndarray
+        self.prey_utility_gradient: np.ndarray
 
     def step(self):
         for c in self.creature_list:
-            c.step()  # pass game data
+            c.step()
+        self.calc_threat_field()
+        self.calc_prey_utility_field()
 
     def add_creature(self, c: Creature):
         if c not in self.creature_list:
@@ -391,11 +402,55 @@ class HuntersGame:
             c = cast(Hunter, c)
             self.hunter_list.append(c)
 
-    def valid_pos(self, pos: np.ndarray):
+    def is_valid_pos(self, pos: np.ndarray):
         return (
             not (pos > self.map_dim).any()
             and (pos > np.array([0, 0], dtype=float)).all()
         )
+
+    def calc_prey_utility_field(self):
+        # world dimensions
+        h = self.height
+        w = self.width
+
+        # center of world
+        a = h / 2
+        b = w / 2
+
+        # height (amplitude)
+        amp = 2
+        
+        xs = np.arange(w)
+        ys = np.arange(h)
+        X, Y = np.meshgrid(xs, ys, indexing="xy")
+
+        def util_base():
+            term_x = ((2 * X - a) / w) ** (2 * w)
+            term_y = ((2 * Y - b) / h) ** (2 * h)
+            return amp * np.exp(-(term_x + term_y))
+
+        def disutil_threats():
+            # Initialize the product term (start at 1 for multiplication)
+            product_term = np.ones((h, w), dtype=np.float64)
+
+            for hunter in self.hunter_list:
+                px, py = hunter.pos[0], hunter.pos[1]
+                sigma = hunter.detect_range / 3
+
+                dist_sq = (X - px) ** 2 + (Y - py) ** 2
+                threat = np.exp(-dist_sq / (2 * sigma**2))
+
+                # Update product term for combined threat formula
+                product_term *= 1 - threat / amp
+            return -1 * amp * (1 - product_term)
+        
+        # U = util_base() + disutil_threats()
+        U = disutil_threats()
+        self.prey_utility_field = U
+
+        gy, gx = np.gradient(U)
+        self.prey_utility_gradient = np.stack((gx, gy), axis=-1)
+        pass
 
     def calc_threat_field(self):
         h = self.height
@@ -455,7 +510,7 @@ def draw_creature(c: Creature, screen):
 def draw_arr(arr: np.ndarray, screen, low: float = 0.0, high: float = 1.0):
     def value_to_color(val: float):
         val = np.clip(val, low, high)
-        level = int(np.interp(val, [low, high], [255, 50]))
+        level = int(np.interp(val, [low, high], [50, 255]))
         return (level, level, level)
 
     w, h = arr.shape
@@ -471,7 +526,7 @@ def draw_arr(arr: np.ndarray, screen, low: float = 0.0, high: float = 1.0):
 
 def init_game_data():
 
-    game_init: GameInit = {"height": 600, "width": 700}
+    game_init: GameInit = {"height": 600, "width": 600}
     game_data = HuntersGame(game_init)
 
     for i in range(0, 1):
@@ -487,7 +542,7 @@ def init_game_data():
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
 
-    for i in range(0, 300):
+    for i in range(0, 2):
         prey_init: CreatureInit = {
             "pos_x": (rdm.random() * game_data.width / 2) + game_data.width / 4,
             "pos_y": (rdm.random() * game_data.height / 2) + game_data.height / 4,
@@ -500,6 +555,7 @@ def init_game_data():
         Prey(prey_init, game_data)
 
     game_data.calc_threat_field()
+    game_data.calc_prey_utility_field()
 
     return game_data
 
@@ -521,9 +577,8 @@ def main():
         screen.fill((255, 255, 255))
 
         game_data.step()
-        game_data.calc_threat_field()
 
-        # draw_arr(game_data.threat_field, screen)
+        draw_arr(game_data.threat_field, screen)
         # dy, dx = np.gradient(game_data.threat_field)
         # arr = game_data.threat_field
         # arr = cast(np.ndarray, game_data.threat_gradient_x)
