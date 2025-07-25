@@ -324,53 +324,32 @@ class HuntersGame:
         ys = np.arange(h)
         X, Y = np.meshgrid(xs, ys, indexing="xy")
 
-        # Initialize the product term (start at 1 for multiplication)
-        product_term = np.ones((h, w), dtype=np.float64)
+        def uf1():
+            # Initialize the product term (start at 1 for multiplication)
+            product_term = np.ones((h, w), dtype=np.float64)
 
-        for hunter in self.hunter_list:
-            px, py = hunter.pos[0], hunter.pos[1]
-            sigma = hunter.detect_range / 3
+            for hunter in self.hunter_list:
+                px, py = hunter.pos[0], hunter.pos[1]
+                sigma = hunter.detect_range / 3
 
-            dist_sq = (X - px) ** 2 + (Y - py) ** 2
-            threat = np.exp(-dist_sq / (2 * sigma**2))
+                dist_sq = (X - px) ** 2 + (Y - py) ** 2
+                threat = np.exp(-dist_sq / (2 * sigma**2))
 
-            # Update product term for combined threat formula
-            product_term *= 1 - threat / 2
+                product_term *= 1 - threat / 2
+            return 2 * (1 - product_term) * -1
+        
+        def uf2():
+            a = w/2
+            b = h/2
+            k = 10
+            term_x = ((2 * X - a*2) / w) ** k
+            term_y = ((2 * Y - b*2) / h) ** k
+            return 2 * np.exp(-1 * (term_x + term_y))
 
-        # threat field
-        self.prey_utility_field = 2 * (1 - product_term) * -1
-
+        self.prey_utility_field = uf1() + uf2()
         # also update partial derivative gradient fields
         gy, gx = np.gradient(self.prey_utility_field)
         self.prey_utility_gradient = np.stack((gx, gy), axis=-1)
-
-    def calc_threat_field(self):
-        h = self.height
-        w = self.width
-
-        xs = np.arange(w)
-        ys = np.arange(h)
-        X, Y = np.meshgrid(xs, ys, indexing="xy")
-
-        # Initialize the product term (start at 1 for multiplication)
-        product_term = np.ones((h, w), dtype=np.float64)
-
-        for hunter in self.hunter_list:
-            px, py = hunter.pos[0], hunter.pos[1]
-            sigma = hunter.detect_range / 3
-
-            dist_sq = (X - px) ** 2 + (Y - py) ** 2
-            threat = np.exp(-dist_sq / (2 * sigma**2))
-
-            # Update product term for combined threat formula
-            product_term *= 1 - threat / 2
-
-        # threat field
-        self.threat_field = 2 * (1 - product_term)
-
-        # also update partial derivative gradient fields
-        gy, gx = np.gradient(self.threat_field)
-        self.threat_gradient = np.stack((gx, gy), axis=-1)
 
 
 def draw_creature(c: Creature, screen):
@@ -431,8 +410,10 @@ def init_game_data():
 
     for i in range(0, 1):
         hunter_init: CreatureInit = {
-            "pos_x": rdm.random() * game_data.width,
-            "pos_y": rdm.random() * game_data.height,
+            # "pos_x": rdm.random() * game_data.width,
+            # "pos_y": rdm.random() * game_data.height,
+            "pos_x": game_data.width / 2,
+            "pos_y": game_data.height / 2,
             "speed": 10,
             "detect_range": 400,
             "max_stamina": 1000,
@@ -442,14 +423,14 @@ def init_game_data():
         # invoking constructor adds it to the game object
         Hunter(hunter_init, game_data)
 
-    for i in range(0, 100):
+    for i in range(0, 200):
         prey_init: CreatureInit = {
             "pos_x": (rdm.random() * game_data.width / 2) + game_data.width / 4,
             "pos_y": (rdm.random() * game_data.height / 2) + game_data.height / 4,
             "speed": 3,
             "detect_range": 100,
-            "max_stamina": 200,
-            "stamina_threshold": 20,
+            "max_stamina": 100 + rdm.random() * 100,
+            "stamina_threshold": 100,
             "stamina_recharge": 5,
         }
         Prey(prey_init, game_data)
@@ -477,8 +458,8 @@ def main():
 
         game_data.step()
 
-        # arr = game_data.prey_utility_field
-        # draw_arr(arr, screen, low_val=np.min(arr), high_val=np.max(arr))
+        arr = game_data.prey_utility_field
+        draw_arr(arr, screen, low_val=np.min(arr), high_val=np.max(arr))
 
         for c in game_data.creature_list:
             draw_creature(c, screen)
