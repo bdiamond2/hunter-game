@@ -4,9 +4,13 @@ import pygame
 import sys
 from typing import TypedDict, List, cast
 import random as rdm
+# from noise import pnoise1
 
 
 def rotate_vector(v: np.ndarray, theta: float) -> np.ndarray:
+    """
+    Takes a given vector and rotates it by a specified angle theta in radians
+    """
     rotation_matrix = np.array(
         [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
     )
@@ -37,6 +41,10 @@ class Creature:
 
         self.speed = ci.get("speed", 1)
 
+        # initialize heading as a unit vector in a random direction
+        theta = np.random.uniform(0, 2 * np.pi)
+        self.heading = np.array([np.cos(theta), np.sin(theta)])  # remember your unit circle
+
         self.detect_range = ci.get("detect_range", 50)
 
         self.max_stamina = ci.get("max_stamina", 100)
@@ -52,9 +60,16 @@ class Creature:
 
     def wander(self):
         if rdm.random() < 0.1:  # 10% random chance of moving
-            pass
+            MAX_DTHETA = 0.3
+            dtheta = np.random.uniform(-1 * MAX_DTHETA, MAX_DTHETA)
+            vec = rotate_vector(self.heading, dtheta)
+            new_pos = self.pos + vec
+            if not self.game_data.is_valid_pos(new_pos):
+                new_pos = self.game_data.center
+            # wandering doesn't consume stamina
+            return self.try_move_to(new_pos)
         else:
-            pass
+            return False
 
     def can_detect(self, other: Creature):
         # magnitude of the difference vector = distance
@@ -114,6 +129,38 @@ class Hunter(Creature):
         self.target_change_factor = 0.5
         super().__init__(hunter_data, game_data)
 
+    def step(self):
+        if not self.is_alive:
+            return
+
+        # flip to True if chasing happens
+        did_chase = False
+
+        self.wander()
+        # vec = rotate_vector(np.array([1, 0]), 2 * np.pi * rdm.random()) * self.speed
+        # new_pos = self.pos + vec
+        # if not self.game_data.is_valid_pos(new_pos):
+        #     new_pos = np.array([self.game_data.width / 2, self.game_data.height / 2])
+        # self.try_move_to(new_pos)
+
+        # for c in self.game_data.prey_list:
+        #     if self.can_chase(c):
+        #         c = cast(Prey, c)
+
+        #         # determine if we need to change or keep target
+        #         self.eval_target(c)
+        #     else:
+        #         pass  # do nothing for this - not chasable
+
+        # did_chase = self.try_chase(self.target)
+
+        if did_chase:
+            self.decrease_stamina()
+            # self.eval_target(self.target)  # check if we should keep this target
+        else:
+            self.increase_stamina(self.stamina_recharge_rate)
+            self.wander()
+
     def eval_target(self, p: Prey | None):
         if p == None:
             return False
@@ -146,31 +193,6 @@ class Hunter(Creature):
         else:
             # this shouldn't happen
             raise RuntimeError("eval_target() is broken")
-
-    def step(self):
-        if not self.is_alive:
-            return
-
-        # flip to True if chasing happens
-        did_chase = False
-
-        # for c in self.game_data.prey_list:
-        #     if self.can_chase(c):
-        #         c = cast(Prey, c)
-
-        #         # determine if we need to change or keep target
-        #         self.eval_target(c)
-        #     else:
-        #         pass  # do nothing for this - not chasable
-
-        # did_chase = self.try_chase(self.target)
-
-        if did_chase:
-            self.decrease_stamina()
-            # self.eval_target(self.target)  # check if we should keep this target
-        else:
-            self.increase_stamina(self.stamina_recharge_rate)
-            self.wander()
 
     def can_chase(self, c: Creature):
         return isinstance(c, Prey) and self.can_detect(c) and c.is_alive and c != self
@@ -281,7 +303,7 @@ class HuntersGame:
         self.width = game_init["width"]
         self.height = game_init["height"]
         self.map_dim = np.array([self.width, self.height])
-        self.map_middle = self.map_dim / 2.0
+        self.center = self.map_dim / 2.0
 
         self.threat_field: np.ndarray
         self.threat_gradient: np.ndarray
@@ -291,6 +313,7 @@ class HuntersGame:
 
         self.prey_utility_field: np.ndarray
         self.prey_utility_gradient: np.ndarray
+        self.UTILITY_AMPLITUDE = 2
 
     def step(self):
         # print("game_data.step() called")
@@ -324,6 +347,7 @@ class HuntersGame:
         ys = np.arange(h)
         X, Y = np.meshgrid(xs, ys, indexing="xy")
 
+        # layer representing the disutility from being near hunters
         def uf1():
             # Initialize the product term (start at 1 for multiplication)
             product_term = np.ones((h, w), dtype=np.float64)
@@ -335,16 +359,32 @@ class HuntersGame:
                 dist_sq = (X - px) ** 2 + (Y - py) ** 2
                 threat = np.exp(-dist_sq / (2 * sigma**2))
 
-                product_term *= 1 - threat / 2
-            return 2 * (1 - product_term) * -1
-        
+                product_term *= 1 - threat / self.UTILITY_AMPLITUDE
+            return self.UTILITY_AMPLITUDE * (1 - product_term) * -1
+
+        # layer representing the utility of being near the center of the map
         def uf2():
-            a = w/2
-            b = h/2
+            a = w / 2
+            b = h / 2
             k = 10
-            term_x = ((2 * X - a*2) / w) ** k
-            term_y = ((2 * Y - b*2) / h) ** k
-            return 2 * np.exp(-1 * (term_x + term_y))
+            term_x = ((2 * X - a * 2) / w) ** k
+            term_y = ((2 * Y - b * 2) / h) ** k
+            return self.UTILITY_AMPLITUDE * np.exp(-1 * (term_x + term_y))
+        
+        # layer representing disutility from being very close to other prey
+        def uf3():
+            # Initialize the product term (start at 1 for multiplication)
+            product_term = np.ones((h, w), dtype=np.float64)
+
+            for prey in self.prey_list:
+                px, py = prey.pos[0], prey.pos[1]
+                sigma = 1
+
+                dist_sq = (X - px) ** 2 + (Y - py) ** 2
+                disutil = np.exp(-dist_sq / (2 * sigma**2))
+
+                product_term *= 1 - disutil / self.UTILITY_AMPLITUDE
+            return self.UTILITY_AMPLITUDE * (1 - product_term) * -1
 
         self.prey_utility_field = uf1() + uf2()
         # also update partial derivative gradient fields
@@ -391,7 +431,7 @@ def draw_arr(
         level = int(np.interp(val, [low_val, high_val], [low_level, high_level]))
         return (level, level, level)
 
-    w, h = arr.shape
+    h, w = arr.shape
     step = 20
     px = 20
 
@@ -405,16 +445,16 @@ def draw_arr(
 def init_game_data():
 
     # TODO: draw_arr throws exception for non-square worlds
-    game_init: GameInit = {"height": 600, "width": 600}
+    game_init: GameInit = {"height": 400, "width": 300}
     game_data = HuntersGame(game_init)
 
-    for i in range(0, 1):
+    for i in range(0, 2):
         hunter_init: CreatureInit = {
             # "pos_x": rdm.random() * game_data.width,
             # "pos_y": rdm.random() * game_data.height,
             "pos_x": game_data.width / 2,
             "pos_y": game_data.height / 2,
-            "speed": 10,
+            "speed": 3,
             "detect_range": 400,
             "max_stamina": 1000,
             "stamina_threshold": 1000,
