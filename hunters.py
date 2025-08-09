@@ -4,7 +4,7 @@ import pygame
 import sys
 from typing import TypedDict, List, cast
 import random as rdm
-# from noise import pnoise1
+from noise import pnoise1
 
 
 def rotate_vector(v: np.ndarray, theta: float) -> np.ndarray:
@@ -44,6 +44,7 @@ class Creature:
         # initialize heading as a unit vector in a random direction
         theta = np.random.uniform(0, 2 * np.pi)
         self.heading = np.array([np.cos(theta), np.sin(theta)])  # remember your unit circle
+        self.noise_t = rdm.uniform(0, 1000)
 
         self.detect_range = ci.get("detect_range", 50)
 
@@ -59,17 +60,21 @@ class Creature:
         pass  # default behavior do nothing
 
     def wander(self):
-        if rdm.random() < 0.1:  # 10% random chance of moving
-            MAX_DTHETA = 0.3
-            dtheta = np.random.uniform(-1 * MAX_DTHETA, MAX_DTHETA)
-            vec = rotate_vector(self.heading, dtheta)
-            new_pos = self.pos + vec
+        if rdm.random() < 0.3:
+            nudge = pnoise1(self.noise_t) / 10
+            self.inc_noise_t()
+            self.heading = rotate_vector(self.heading, nudge)
+            new_pos = self.pos + self.heading
+            
             if not self.game_data.is_valid_pos(new_pos):
                 new_pos = self.game_data.center
             # wandering doesn't consume stamina
             return self.try_move_to(new_pos)
         else:
             return False
+        
+    def inc_noise_t(self):
+        self.noise_t += 0.01
 
     def can_detect(self, other: Creature):
         # magnitude of the difference vector = distance
