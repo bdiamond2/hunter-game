@@ -30,6 +30,33 @@ class CreatureInit(TypedDict, total=False):
     stamina_threshold: float
     stamina_recharge: float
 
+class Player:
+    def __init__(self, x=0, y=0, speed=2):
+        self.x = x
+        self.y = y
+        self.speed = speed
+
+    def move(self, keys):
+        dx = 0
+        dy = 0
+
+        if keys[pygame.K_LEFT]:
+            dx -= 1
+        if keys[pygame.K_RIGHT]:
+            dx += 1
+        if keys[pygame.K_UP]:
+            dy -= 1
+        if keys[pygame.K_DOWN]:
+            dy += 1
+        
+        vec = np.array([dx, dy])
+        mag = np.linalg.norm(vec)
+
+        if mag > 1e-6:
+            vec = self.speed * vec / mag
+            self.x += vec[0]
+            self.y += vec[1]
+
 
 class Creature:
     def __init__(self, creature_init: CreatureInit, game_data: HuntersGame):
@@ -396,6 +423,8 @@ class HuntersGame:
         gy, gx = np.gradient(self.prey_utility_field)
         self.prey_utility_gradient = np.stack((gx, gy), axis=-1)
 
+def draw_player(p: Player, screen):
+    pygame.draw.circle(screen, (0,255,0), (p.x, p.y), 5)
 
 def draw_creature(c: Creature, screen):
     color = [0, 0, 0]
@@ -493,6 +522,8 @@ def main():
     screen = pygame.display.set_mode((w, h))
     clock = pygame.time.Clock()
 
+    p = Player(x=100, y=100)
+
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -508,6 +539,9 @@ def main():
 
         for c in game_data.creature_list:
             draw_creature(c, screen)
+
+        p.move(pygame.key.get_pressed())
+        draw_player(p, screen)
 
         pygame.display.flip()
         clock.tick(60)
