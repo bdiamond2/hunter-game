@@ -168,63 +168,58 @@ class Hunter(Creature):
         # flip to True if chasing happens
         did_chase = False
 
-        self.wander()
+        # self.wander()
         # vec = rotate_vector(np.array([1, 0]), 2 * np.pi * rdm.random()) * self.speed
         # new_pos = self.pos + vec
         # if not self.game_data.is_valid_pos(new_pos):
         #     new_pos = np.array([self.game_data.width / 2, self.game_data.height / 2])
         # self.try_move_to(new_pos)
 
-        # for c in self.game_data.prey_list:
-        #     if self.can_chase(c):
-        #         c = cast(Prey, c)
+        for c in self.game_data.prey_list:
+            self.eval_target(c)
 
-        #         # determine if we need to change or keep target
-        #         self.eval_target(c)
-        #     else:
-        #         pass  # do nothing for this - not chasable
-
-        # did_chase = self.try_chase(self.target)
+        did_chase = self.try_chase(self.target)
 
         if did_chase:
             self.decrease_stamina()
-            # self.eval_target(self.target)  # check if we should keep this target
+            self.eval_target(self.target)  # check if we should keep this target
         else:
             self.increase_stamina(self.stamina_recharge_rate)
             self.wander()
 
-    def eval_target(self, p: Prey | None):
-        if p == None:
+    # TODO: this is messy
+    def eval_target(self, p: Creature | None):
+        if not isinstance(p, Prey):
             return False
+        
+        p = cast(Prey, p)
 
-        if not p.is_alive:
+        if not self.can_chase(p):
             if self.target == p:
                 self.target = None
             return False
-
-        # acquire first lock
-        if self.target == None:
-            self.target = p
-            return True
-        # already locked onto this
-        elif self.target == p:
-            # assess if prey is dead
-            self.target = None if not p.is_alive else self.target
-            return True
-        # check if we should change targets
-        elif self.target != p:
-            # if the distance to this new target is less than the tgt chg factor...
-            if distance_to(self.pos, p.pos) < self.target_change_factor * distance_to(
-                self.pos, self.target.pos
-            ):
-                # switch to this target
+        else:
+            # acquire first lock
+            if self.target == None:
                 self.target = p
                 return True
+            # already locked onto this
+            elif self.target == p:  # already know it's chasable
+                return True
+            # check if we should change targets
+            elif self.target != p:
+                # if the distance to this new target is less than the tgt chg factor...
+                if distance_to(self.pos, p.pos) < self.target_change_factor * distance_to(
+                    self.pos, self.target.pos
+                ):
+                    # switch to this target
+                    self.target = p
+                    return True
+                else:
+                    return False
             else:
-                return False
-        else:
-            # this shouldn't happen
-            raise RuntimeError("eval_target() is broken")
+                # this shouldn't happen
+                raise RuntimeError("eval_target() is broken")
 
     def can_chase(self, c: Creature):
         return isinstance(c, Prey) and self.can_detect(c) and c.is_alive and c != self
@@ -263,7 +258,7 @@ class Prey(Creature):
 
         did_flee = False
 
-        # if self.get_threat_level() > 0.75:
+        # if self.get_prey_utility() < 0:
         if True:
             self.make_alert()
             vec = self.get_util_max_vector()
@@ -289,10 +284,10 @@ class Prey(Creature):
         else:
             self.increase_stamina(self.stamina_recharge_rate)
 
-    def get_threat_level(self):
+    def get_prey_utility(self):
         x = int(self.pos[0])
         y = int(self.pos[1])
-        return self.game_data.threat_field[y, x]
+        return self.game_data.prey_utility_field[y, x]
 
     def get_flee_vector(self):
         x = int(self.pos[0])
@@ -482,14 +477,15 @@ def init_game_data():
     game_init: GameInit = {"height": 400, "width": 300}
     game_data = HuntersGame(game_init)
 
-    for i in range(0, 2):
+    NUM_HUNTERS = 2
+    for i in range(0, NUM_HUNTERS):
         hunter_init: CreatureInit = {
             # "pos_x": rdm.random() * game_data.width,
             # "pos_y": rdm.random() * game_data.height,
             "pos_x": game_data.width / 2,
             "pos_y": game_data.height / 2,
             "speed": 3,
-            "detect_range": 400,
+            "detect_range": 50,
             "max_stamina": 1000,
             "stamina_threshold": 1000,
             "stamina_recharge": 10,
